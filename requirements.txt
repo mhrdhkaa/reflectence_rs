@@ -5,3 +5,4 @@ numpy
 rasterio
 psycopg2-binary
 pillow
+python-dotenv

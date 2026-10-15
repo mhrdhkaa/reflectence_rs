@@ -5,6 +5,7 @@ import re
 import uuid
 import warnings
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -17,6 +18,9 @@ from rasterio.enums import Resampling
 from rasterio.errors import NotGeoreferencedWarning
 from rasterio.windows import Window
 import uvicorn
+
+# Memuat variabel lingkungan dari file .env
+load_dotenv()
 
 # Sembunyikan peringatan georeferensi untuk file JPG
 warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)
@@ -34,14 +38,14 @@ ALLOWED_EXT = {".jpg", ".jpeg", ".tif", ".tiff"}
 PREVIEW_MAX_SIDE = 2000
 
 # ---------------------------------------------------------------------------
-# Konfigurasi PostgreSQL / pgAdmin
+# Konfigurasi PostgreSQL / pgAdmin (Mengambil dari file .env)
 # ---------------------------------------------------------------------------
 DB_CONFIG = {
-    "dbname": "calibration_logs",
-    "user": "postgres",
-    "password": "password_baru_anda",  # Ganti dengan password pgAdmin Anda
-    "host": "localhost",
-    "port": "5432",
+    "dbname": os.getenv("DB_NAME", "calibration_logs"),
+    "user": os.getenv("DB_USER", "postgres"),
+    "password": os.getenv("DB_PASSWORD", ""),
+    "host": os.getenv("DB_HOST", "localhost"),
+    "port": os.getenv("DB_PORT", "5432"),
 }
 
 MIGRATION_SQL = """
@@ -71,7 +75,7 @@ ALTER TABLE calibration_logs ALTER COLUMN mult_blue  DROP NOT NULL;
 
 
 # ---------------------------------------------------------------------------
-# Lifespan Event Handler (Menggantikan @app.on_event yang deprecated)
+# Lifespan Event Handler
 # ---------------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -489,6 +493,8 @@ async def calibrate_image(
       "calibrated_preview_url": f"/previews/{cal_preview_name}",
       "stats": stats,
   }
+
+
 # ---------------------------------------------------------------------------
 # Entry Point
 # ---------------------------------------------------------------------------

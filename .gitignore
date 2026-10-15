@@ -5,3 +5,4 @@ previews/*
 !.gitkeep
 .idea/
 .venv/
+.env
