@@ -1,0 +1,7 @@
+__pycache__/
+uploads/*
+outputs/*
+previews/*
+!.gitkeep
+.idea/
+.venv/

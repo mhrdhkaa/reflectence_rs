@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kalibrasi Reflektansi JPG / TIFF</title>
+<style>
+  :root {
+    --bg:#f4f6f8; --card:#fff; --text:#1c2733; --muted:#6b7a89;
+    --line:#dde3e9; --accent:#2563eb; --ok:#15803d; --err:#b91c1c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12171d; --card:#1b232c; --text:#e6ebf0; --muted:#93a1af; --line:#2c3743; --accent:#5b8def; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:20px 24px; border-bottom:1px solid var(--line); background:var(--card); }
+  header h1 { margin:0; font-size:1.25rem; }
+  header p { margin:4px 0 0; color:var(--muted); font-size:.9rem; }
+  main { max-width:1200px; margin:0 auto; padding:20px; display:grid; gap:20px; grid-template-columns:1.4fr 1fr; }
+  @media (max-width:900px){ main{ grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px; min-width:0; }
+  .card h2 { margin:0 0 12px; font-size:1rem; }
+  .step { display:inline-block; background:var(--accent); color:#fff; border-radius:50%; width:22px; height:22px; text-align:center; line-height:22px; font-size:.8rem; margin-right:6px; }
+
+  /* Viewer Mode Switcher */
+  .view-mode-bar { display:flex; gap:8px; margin-bottom:12px; }
+  .mode-btn { background:var(--bg); color:var(--text); border:1px solid var(--line); margin-top:0; padding:8px 14px; font-size:.88rem; width:auto; flex:1; }
+  .mode-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .mode-btn:disabled { opacity:0.4; cursor:not-allowed; }
+
+  /* Viewer Zoom & Canvas */
+  .toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:12px; }
+  .toolbar button { width:auto; margin:0; padding:6px 12px; font-size:.9rem; }
+  .toolbar .zl { font-size:.85rem; color:var(--muted); min-width:52px; text-align:center; }
+  .toolbar .coord { margin-left:auto; font-size:.8rem; color:var(--muted); }
+  #canvasWrap { margin-top:8px; overflow:auto; border:1px dashed var(--line); border-radius:8px; background:#0002; display:flex; cursor:crosshair; }
+  #canvasWrap.loaded { height:min(70vh, 640px); border-style:solid; }
+  #canvasWrap.panning { cursor:grabbing; user-select:none; }
+  #stage { position:relative; margin:auto; flex:none; display:none; }
+  canvas { display:block; }
+  canvas.pix { image-rendering:pixelated; }
+  #marker { position:absolute; display:none; pointer-events:none; transform:translate(-50%,-50%);
+            border:2px solid #ffe600; box-shadow:0 0 0 1px #000a, inset 0 0 0 1px #000a; background:rgba(255,230,0,.15); }
+  #marker::before, #marker::after { content:""; position:absolute; background:#ffe600; box-shadow:0 0 0 1px #000a; }
+  #marker::before { left:50%; top:-8px; bottom:-8px; width:1px; transform:translateX(-50%); }
+  #marker::after  { top:50%; left:-8px; right:-8px; height:1px; transform:translateY(-50%); }
+  .empty { padding:60px 20px; text-align:center; color:var(--muted); margin:auto; }
+
+  label { display:block; font-size:.82rem; color:var(--muted); margin:10px 0 4px; }
+  input[type=number], input[type=file], select { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--text); font-size:.95rem; }
+  .dn-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(110px,1fr)); gap:10px; }
+  .chip { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:4px; background:var(--muted); }
+  button { cursor:pointer; border:0; border-radius:8px; padding:10px 16px; font-size:.95rem; font-weight:600; background:var(--accent); color:#fff; width:100%; margin-top:14px; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  button.secondary { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+  table { width:100%; border-collapse:collapse; font-size:.85rem; margin-top:6px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  th { color:var(--muted); font-weight:500; }
+  .mono { font-family:ui-monospace,Menlo,Consolas,monospace; }
+  .msg { margin-top:12px; padding:10px 12px; border-radius:8px; font-size:.9rem; display:none; }
+  .msg.ok { display:block; background:#15803d22; color:var(--ok); }
+  .msg.err { display:block; background:#b91c1c22; color:var(--err); }
+  .msg.info { display:block; background:#2563eb22; color:var(--accent); }
+  .hint { font-size:.8rem; color:var(--muted); margin-top:6px; }
+  a.dl { display:inline-block; margin-top:8px; color:var(--accent); font-weight:600; }
+  .hist-wrap { max-height:260px; overflow:auto; }
+
+  .refl-badge { display:inline-block; padding:3px 8px; border-radius:6px; font-size:.8rem; font-weight:bold; background:#2563eb22; color:var(--accent); margin-right:4px; margin-bottom:4px; }
+  .btn-sm { padding:4px 8px; font-size:.78rem; border-radius:6px; width:auto; margin-top:0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Kalibrasi Reflektansi Citra JPG / TIFF (Empirical Line Method)</h1>
+  <p>Zoom ke kertas abu-abu, klik untuk membaca DN tiap band, hitung multiplier, dan inspeksi hasil terkalibrasi.</p>
+</header>
+
+<main>
+  <section class="card">
+    <h2><span class="step">1</span>Tampilan Citra Viewer</h2>
+
+    <!-- Tombol Alih Mode Viewer -->
+    <div class="view-mode-bar">
+      <button id="modeRaw" class="mode-btn active">📷 Citra Mentah (DN)</button>
+      <button id="modeCal" class="mode-btn" disabled>✨ Citra Terkalibrasi (Reflektansi)</button>
+    </div>
+
+    <input type="file" id="fileInput" accept=".jpg,.jpeg,.tif,.tiff,image/jpeg,image/tiff">
+    <div id="upStatus" class="msg"></div>
+
+    <div class="toolbar" id="toolbar" style="display:none">
+      <button class="secondary" id="zOut" title="Perkecil">−</button>
+      <span class="zl" id="zLabel">100%</span>
+      <button class="secondary" id="zIn" title="Perbesar">+</button>
+      <button class="secondary" id="zFit" title="Muat seluruh citra">Fit</button>
+      <button class="secondary" id="z11" title="Satu piksel citra = satu piksel layar">1:1</button>
+      <span class="coord mono" id="coordInfo"></span>
+    </div>
+
+    <div id="canvasWrap">
+      <div class="empty" id="emptyMsg">Belum ada citra. Pilih file JPG atau TIFF terlebih dahulu.</div>
+      <div id="stage"><canvas id="canvas"></canvas><div id="marker"></div></div>
+    </div>
+    <p class="hint">Scroll mouse = zoom · tahan &amp; geser = pan · klik = baca piksel pada mode aktif.</p>
+    <p class="hint" id="imgInfo"></p>
+  </section>
+
+  <aside style="display:grid; gap:20px; align-content:start;">
+    <section class="card">
+      <h2><span class="step">2</span>Nilai DN Kertas Abu-abu</h2>
+      <label for="winSize">Ukuran jendela sampel (rata-rata piksel)</label>
+      <select id="winSize">
+        <option value="1">1 × 1 (satu piksel)</option>
+        <option value="5" selected>5 × 5</option>
+        <option value="11">11 × 11</option>
+        <option value="21">21 × 21</option>
+      </select>
+      <div class="dn-grid" id="dnGrid"><p class="hint">Unggah citra untuk menampilkan input band.</p></div>
+      <p class="hint">Klik citra mentah untuk mengisi otomatis, atau ketik manual nilai DN.</p>
+    </section>
+
+    <section class="card">
+      <h2><span class="step">3</span>Reflektansi Acuan &amp; Multiplier</h2>
+      <label for="refl">Reflektansi kertas (0–1)</label>
+      <input type="number" id="refl" value="0.18" step="0.01" min="0.001" max="1">
+      <table>
+        <thead><tr><th>Band</th><th>DN</th><th>Multiplier</th></tr></thead>
+        <tbody id="multBody"><tr><td colspan="3" class="hint">–</td></tr></tbody>
+      </table>
+      <p class="hint">Multiplier = reflektansi acuan ÷ DN band.</p>
+      <button id="btnRun" disabled>Kalibrasi &amp; Simpan</button>
+      <div class="msg" id="msg"></div>
+      <div id="result"></div>
+    </section>
+
+    <!-- Card Statistik Reflektansi -->
+    <section class="card" id="calibStatsCard" style="display:none;">
+      <h2><span class="step">4</span>Hasil Inspeksi Reflektansi</h2>
+      <div id="calibPixelClickInfo" class="hint" style="margin-bottom:10px;">
+        Klik lokasi mana saja pada <strong>Citra Terkalibrasi</strong> untuk membaca nilai reflektansi murni (% &amp; desimal).
+      </div>
+      <div id="calibStatsBody"></div>
+    </section>
+  </aside>
+
+  <section class="card" style="grid-column:1 / -1;">
+    <h2>Riwayat Kalibrasi (database)</h2>
+    <div class="hist-wrap">
+      <table>
+        <thead><tr><th>Waktu</th><th>File</th><th>Refl.</th><th>DN per band</th><th>Multiplier per band</th><th>Aksi</th></tr></thead>
+        <tbody id="histBody"><tr><td colspan="6" class="hint">Memuat…</td></tr></tbody>
+      </table>
+    </div>
+    <button class="secondary" id="btnHist" style="width:auto">Muat ulang</button>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const canvas = $('canvas'), ctx = canvas.getContext('2d');
+const wrap = $('canvasWrap'), stage = $('stage'), markerEl =$('marker');
+const BAND_COLORS = ['#dc2626', '#16a34a', '#2563eb'];
+const MAX_PX_SCALE = 40;
+
+let meta = null;        // Meta citra mentah
+let calMeta = null;     // Meta citra terkalibrasi
+let activeMode = 'raw'; // 'raw' atau 'calibrated'
+let marker = null, dnInputs = [];
+let zoom = 1, fitW = 0;
+const img = new Image();
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = (v, d = 6) => (isFinite(v) ? v.toFixed(d) : '–');
+const bandLabel = (i, count) => count === 3 ? ['Red', 'Green', 'Blue'][i] : `Band ${i + 1}`;
+function setStatus(el, type, text) { el.className = 'msg ' + type; el.textContent = text; }
+
+/* Switch Mode Handler */
+$('modeRaw').onclick = () => switchMode('raw');$('modeCal').onclick = () => switchMode('calibrated');
+
+function switchMode(mode) {
+  if (mode === 'calibrated' && !calMeta) return;
+  activeMode = mode;
+  $('modeRaw').classList.toggle('active', mode === 'raw');$('modeCal').classList.toggle('active', mode === 'calibrated');
+
+  if (mode === 'raw') {
+    img.src = meta.preview_url + '?t=' + Date.now();
+  } else {
+    img.src = calMeta.preview_url + '?t=' + Date.now();
+  }
+}
+
+/* Build Input Band */
+function buildBandInputs(count) {
+  const grid = $('dnGrid'); grid.innerHTML = ''; dnInputs = [];
+  for (let i = 0; i < count; i++) {
+    const w = document.createElement('div');
+    const color = count === 3 ? BAND_COLORS[i] : 'var(--muted)';
+    w.innerHTML = `<label><span class="chip" style="background:${color}"></span>DN ${bandLabel(i, count)}</label>`;
+    const inp = document.createElement('input');
+    inp.type = 'number'; inp.step = 'any'; inp.min = '0.0001';
+    inp.addEventListener('input', updateTable);
+    w.appendChild(inp); grid.appendChild(w); dnInputs.push(inp);
+  }
+}
+
+function updateTable() {
+  const refl = parseFloat($('refl').value), tb =$('multBody');
+  if (!meta) { tb.innerHTML = '<tr><td colspan="3" class="hint">–</td></tr>'; $('btnRun').disabled = true; return; }
+  let valid = refl > 0 && refl <= 1;
+  tb.innerHTML = dnInputs.map((inp, i) => {
+    const dn = parseFloat(inp.value), ok = dn > 0;
+    if (!ok) valid = false;
+    return `<tr><td>${bandLabel(i, meta.count)}</td><td class="mono">${ok ? dn : '–'}</td><td class="mono">${ok ? fmt(refl / dn) : '–'}</td></tr>`;
+  }).join('');
+  $('btnRun').disabled = !valid;
+}
+
+/* Viewer Layout & Zoom */
+function computeFit() {
+  const currentMeta = activeMode === 'raw' ? meta : calMeta;
+  if (!currentMeta) return;
+  const aspect = currentMeta.width / currentMeta.height;
+  fitW = Math.max(80, Math.min(wrap.clientWidth, wrap.clientHeight * aspect));
+}
+
+const maxZoom = () => {
+  const currentMeta = activeMode === 'raw' ? meta : calMeta;
+  return currentMeta ? Math.max(4, MAX_PX_SCALE * currentMeta.width / fitW) : 4;
+};
+
+function layout() {
+  const currentMeta = activeMode === 'raw' ? meta : calMeta;
+  if (!currentMeta) return;
+  const w = fitW * zoom, h = w / (currentMeta.width / currentMeta.height);
+  canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+  canvas.classList.toggle('pix', w / canvas.width > 3);
+  $('zLabel').textContent = Math.round(w / currentMeta.width * 100) + '%';
+  updateMarker();
+}
+
+function updateMarker() {
+  const currentMeta = activeMode === 'raw' ? meta : calMeta;
+  if (!marker || !currentMeta) { markerEl.style.display = 'none'; return; }
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  const size = Math.max(14, parseInt($('winSize').value) * w / currentMeta.width);
+  markerEl.style.display = 'block';
+  markerEl.style.left = (marker.fx * w) + 'px';
+  markerEl.style.top = (marker.fy * h) + 'px';
+  markerEl.style.width = markerEl.style.height = size + 'px';
+}
+
+function setZoom(newZoom, ax, ay) {
+  if (!meta && !calMeta) return;
+  newZoom = Math.min(Math.max(newZoom, 1), maxZoom());
+  if (newZoom === zoom) return;
+  const wr = wrap.getBoundingClientRect();
+  if (ax === undefined) { ax = wr.left + wr.width / 2; ay = wr.top + wr.height / 2; }
+  const r = canvas.getBoundingClientRect();
+  const fx = (ax - r.left) / r.width, fy = (ay - r.top) / r.height;
+  zoom = newZoom; layout();
+  const r2 = canvas.getBoundingClientRect();
+  wrap.scrollLeft += (r2.left + fx * r2.width) - ax;
+  wrap.scrollTop  += (r2.top  + fy * r2.height) - ay;
+}
+
+$('zIn').onclick   = () => setZoom(zoom * 1.5);$('zOut').onclick  = () => setZoom(zoom / 1.5);
+$('zFit').onclick  = () => { zoom = 1; layout(); wrap.scrollLeft = wrap.scrollTop = 0; };$('z11').onclick   = () => {
+  const currentMeta = activeMode === 'raw' ? meta : calMeta;
+  if (currentMeta) setZoom(currentMeta.width / fitW);
+};
+
+wrap.addEventListener('wheel', e => {
+  if (!meta && !calMeta) return;
+  e.preventDefault();
+  const k = e.ctrlKey ? 0.01 : 0.002;
+  setZoom(zoom * Math.exp(-e.deltaY * k), e.clientX, e.clientY);
+}, { passive: false });
+
+let drag = null, justDragged = false;
+wrap.addEventListener('mousedown', e => {
+  if (e.button !== 0 || (!meta && !calMeta)) return;
+  drag = { x: e.clientX, y: e.clientY, sl: wrap.scrollLeft, st: wrap.scrollTop, moved: false };
+});
+window.addEventListener('mousemove', e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if (!drag.moved && Math.hypot(dx, dy) > 4) { drag.moved = true; wrap.classList.add('panning'); }
+  if (drag.moved) { wrap.scrollLeft = drag.sl - dx; wrap.scrollTop = drag.st - dy; }
+});
+window.addEventListener('mouseup', () => {
+  if (drag && drag.moved) { justDragged = true; setTimeout(() => justDragged = false, 0); }
+  drag = null; wrap.classList.remove('panning');
+});
+
+window.addEventListener('resize', () => { computeFit(); layout(); });
+
+function canvasToOriginal(e) {
+  const currentMeta = activeMode === 'raw' ? meta : calMeta;
+  const r = canvas.getBoundingClientRect();
+  const fx = Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1);
+  const fy = Math.min(Math.max((e.clientY - r.top) / r.height, 0), 1);
+  return { fx, fy, ox: Math.min(currentMeta.width - 1, Math.floor(fx * currentMeta.width)), oy: Math.min(currentMeta.height - 1, Math.floor(fy * currentMeta.height)) };
+}
+
+canvas.addEventListener('mousemove', e => {
+  if (!meta && !calMeta) return;
+  const p = canvasToOriginal(e);
+  $('coordInfo').textContent = `x: ${p.ox}  y: ${p.oy}`;
+});
+canvas.addEventListener('mouseleave', () => { $('coordInfo').textContent = ''; });
+
+img.onload = () => {
+  canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+  ctx.drawImage(img, 0, 0);
+  wrap.classList.add('loaded'); stage.style.display = 'block'; $('emptyMsg').style.display = 'none';$('toolbar').style.display = 'flex';
+  zoom = 1; computeFit(); layout();
+  wrap.scrollLeft = wrap.scrollTop = 0;
+};
+
+/* Upload Handling */
+$('fileInput').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  meta = null; calMeta = null; marker = null;
+  $('result').innerHTML = '';$('msg').className = 'msg';
+  $('modeCal').disabled = true; activeMode = 'raw';$('modeRaw').classList.add('active'); $('modeCal').classList.remove('active');$('calibStatsCard').style.display = 'none';
+
+  buildBandInputs(0); updateTable(); updateMarker();
+  setStatus($('upStatus'), 'info', 'Mengunggah dan membuat pratinjau…');
+  const fd = new FormData(); fd.append('file', f);
+  try {
+    const res = await fetch('/upload', { method: 'POST', body: fd });
+    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    meta = await res.json();
+    $('upStatus').className = 'msg';
+    buildBandInputs(meta.count);
+    img.src = meta.preview_url + '?t=' + Date.now();
+    const geo = meta.georeferenced ? `georeferensi: ${meta.crs}` : 'tanpa georeferensi';
+    $('imgInfo').textContent =
+      `${meta.filename} · ${meta.width} × ${meta.height} px · ${meta.count} band · ${meta.dtype} · ${geo}`;
+    updateTable();
+  } catch (err) {
+    setStatus($('upStatus'), 'err', 'Gagal: ' + err.message);
+  }
+});
+
+/* Klik Kanvas: Baca DN (Mentah) ATAU Baca Reflektansi (Terkalibrasi) */
+canvas.addEventListener('click', async e => {
+  if (justDragged) return;
+  const p = canvasToOriginal(e);
+  marker = { fx: (p.ox + 0.5) / (activeMode === 'raw' ? meta.width : calMeta.width), fy: (p.oy + 0.5) / (activeMode === 'raw' ? meta.height : calMeta.height) };
+  updateMarker();
+
+  if (activeMode === 'raw') {
+    if (!meta) return;
+    try {
+      const q = new URLSearchParams({ file_id: meta.file_id, x: p.ox, y: p.oy, win: $('winSize').value });
+      const res = await fetch('/sample?' + q);
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      const j = await res.json();
+      j.dn.forEach((v, i) => { dnInputs[i].value = v; });
+      updateTable(); $('msg').className = 'msg';
+    } catch (err) {
+      setStatus($('msg'), 'err', 'Gagal membaca piksel: ' + err.message);
+    }
+  } else {
+    /* Mode Citra Terkalibrasi */
+    if (!calMeta) return;
+    try {
+      const q = new URLSearchParams({ output_filename: calMeta.output_filename, x: p.ox, y: p.oy, win: $('winSize').value });
+      const res = await fetch('/sample_calibrated?' + q);
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      const j = await res.json();
+
+      let html = `<strong>Piksel Sampel (x:${p.ox}, y:${p.oy}):</strong><br>`;
+      j.reflectance.forEach((rVal, idx) => {
+        const pct = (rVal * 100).toFixed(2);
+        html += `<span class="refl-badge">${bandLabel(idx, j.reflectance.length)}: ${rVal.toFixed(4)} (${pct}%)</span> `;
+      });
+      $('calibPixelClickInfo').innerHTML = html;
+    } catch (err) {
+      $('calibPixelClickInfo').innerHTML = `<span style="color:var(--err)">Gagal membaca reflektansi: ${err.message}</span>`;
+    }
+  }
+});
+
+$('refl').addEventListener('input', updateTable);$('winSize').addEventListener('change', updateMarker);
+
+/* Proses Kalibrasi */
+$('btnRun').addEventListener('click', async () => {
+  const btn = $('btnRun'); btn.disabled = true; btn.textContent = 'Memproses…';
+  $('result').innerHTML = '';$('msg').className = 'msg';
+  const fd = new FormData();
+  fd.append('file_id', meta.file_id);
+  fd.append('target_reflectance', $('refl').value);
+  fd.append('dn_values', dnInputs.map(i => i.value).join(','));
+  try {
+    const res = await fetch('/calibrate', { method: 'POST', body: fd });
+    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    const j = await res.json();
+
+    setStatus($('msg'), 'ok', j.message + ' — hasil disimpan ke database.');$('result').innerHTML = `<a class="dl" href="${j.output_url}" download>⬇ Unduh GeoTIFF Terkalibrasi</a>`;
+
+    /* Aktifkan mode Citra Terkalibrasi */
+    calMeta = {
+      output_filename: j.output_filename,
+      preview_url: j.calibrated_preview_url,
+      width: meta.width,
+      height: meta.height,
+      count: meta.count,
+      stats: j.stats
+    };
+
+    $('modeCal').disabled = false;
+    displayCalibratedStats(j.stats);
+    switchMode('calibrated');
+    loadHistory();
+  } catch (err) {
+    setStatus($('msg'), 'err', 'Gagal: ' + err.message);
+  } finally {
+    btn.textContent = 'Kalibrasi & Simpan'; updateTable();
+  }
+});
+
+function displayCalibratedStats(stats) {
+  $('calibStatsCard').style.display = 'block';
+  if (!stats) return;
+  let html = `<table><thead><tr><th>Band</th><th>Min Refl</th><th>Max Refl</th><th>Mean Refl</th></tr></thead><tbody>`;
+  stats.forEach(st => {
+    html += `<tr>
+      <td>${bandLabel(st.band - 1, stats.length)}</td>
+      <td class="mono">${st.min}</td>
+      <td class="mono">${st.max}</td>
+      <td class="mono">${st.mean} (${(st.mean * 100).toFixed(1)}%)</td>
+    </tr>`;
+  });
+  html += `</tbody></table>`;
+  $('calibStatsBody').innerHTML = html;
+}
+
+/* Load History dari Database */
+async function loadHistory() {
+  const tb = $('histBody');
+  try {
+    const res = await fetch('/logs');
+    if (!res.ok) throw new Error();
+    const rows = await res.json();
+    if (!rows.length) { tb.innerHTML = '<tr><td colspan="6" class="hint">Belum ada riwayat.</td></tr>'; return; }
+    tb.innerHTML = rows.map(r => {
+      const dn = Array.isArray(r.dn_values) ? r.dn_values : [r.dn_red, r.dn_green, r.dn_blue];
+      const mu = Array.isArray(r.mult_values) ? r.mult_values : [r.mult_red, r.mult_green, r.mult_blue];
+      const outFilename = String(r.output_path).replace(/\\/g, '/').split('/').pop();
+      return `<tr>
+        <td>${new Date(r.created_at).toLocaleString('id-ID')}</td>
+        <td>${esc(r.filename)}</td><td>${r.target_reflectance}</td>
+        <td class="mono">${dn.map(v => esc(v)).join(' / ')}</td>
+        <td class="mono">${mu.map(v => fmt(+v)).join(' / ')}</td>
+        <td>
+          <button class="btn-sm" onclick="previewCalibratedFromHistory('${esc(outFilename)}')">👁 Tampilkan</button>
+          <a class="dl" href="/${esc(String(r.output_path).replace(/\\/g, '/'))}" download style="margin-left:6px; font-size:.8rem;">⬇ Unduh</a>
+        </td></tr>`;
+    }).join('');
+  } catch {
+    tb.innerHTML = '<tr><td colspan="6" class="hint">Riwayat belum tersedia (database tidak terhubung).</td></tr>';
+  }
+}
+
+async function previewCalibratedFromHistory(outputFilename) {
+  try {
+    const res = await fetch('/calibrated_info?output_filename=' + encodeURIComponent(outputFilename));
+    if (!res.ok) throw new Error("Gagal mengambil data terkalibrasi.");
+    const info = await res.json();
+
+    calMeta = {
+      output_filename: info.output_filename,
+      preview_url: info.preview_url,
+      width: info.width,
+      height: info.height,
+      count: info.count,
+      stats: info.stats
+    };
+
+    $('modeCal').disabled = false;
+    displayCalibratedStats(info.stats);
+    switchMode('calibrated');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  } catch (err) {
+    alert("Error: " + err.message);
+  }
+}
+$('btnHist').addEventListener('click', loadHistory);
+loadHistory();
+</script>
+</body>
+</html>
